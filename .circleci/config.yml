@@ -11,20 +11,17 @@ jobs:
           name: Confirm current branch
           command: echo ${CURRENT_BRANCH}
       - restore_cache:
-          key:
-            - app-{{ checksum"package.json }}
+          keys:
+            - app-{{ checksum "package.json" }}
             - app-
-      - run:
-          name: Install yarn
-          command: npm install -g yarn
       - run:
           name: Install dependencies
           command: yarn install
       - save_cache:
           paths:
             - node_modules
-          key:
-            - app-{{ checksum"package.json }}
+          key: app-{{ checksum "package.json" }}
+
   deploy-to-s3:
     docker:
       - image: circleci/node:15.2.1
@@ -33,7 +30,7 @@ jobs:
       - checkout
       - run:
           name: Confirm current branch
-          command: echo ${CURRENT_BRANCH}
+          command: echo ${CIRCLE_BRANCH}
       - run:
           name: Installing AWS CLI and relation library
           working_directory: /
@@ -44,16 +41,25 @@ jobs:
       - run:
           name: Build Project
           command: |
-            npm install -g yarn
             yarn install
             yarn build
             cd build
             zip ../build.zip -r * .[^.]*
-            echo "build success
+            echo "build success"
+      - run:
+          name: Set AWS env
+          command: |
+            export AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
+            export AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY_ID}
+      - run:
+          name: echo AWS env
+          command: |
+            cat ~/.aws/credentials
       - run:
           name: Deploy to S3
           command: |
             aws --region ${AWS_REGION} s3 sync ~/repo/build s3://${AWS_BUCKET} --delete
+
   deploy-to-cloudfront:
     docker:
       - image: circleci/node:15.2.1
@@ -62,7 +68,7 @@ jobs:
       - checkout
       - run:
           name: Confirm current branch
-          command: echo ${CURRENT_BRANCH}
+          command: echo ${CIRCLE_BRANCH}
       - run:
           name: Installing AWS CLI and relation library
           working_directory: /
@@ -73,14 +79,32 @@ jobs:
       - run:
           name: Build Project
           command: |
-            npm install -g yarn
             yarn install
             yarn build
             cd build
             zip ../build.zip -r * .[^.]*
-            echo "build success
+            echo "build success"
       - run:
           name: Deploy to Cloudfront
           command: |
-            aws configure set preview.cloudfront
+            aws configure set preview.cloudfront true
             aws cloudfront create-invalidation distribution-id ${PRODUCT_DISTRIBUTION_ID} --paths /\*
+
+workflows:
+  build_and_deploy:
+    jobs:
+      - build
+      - deploy-to-s3:
+          requires:
+            - build
+          filters:
+            branches:
+              only:
+                - 1-setup-circleci
+      - deploy-to-cloudfront:
+          requires:
+            - deploy-to-s3
+          filters:
+            branches:
+              only:
+                - 1-setup-circleci
