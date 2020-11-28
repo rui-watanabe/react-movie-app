@@ -24,3 +24,36 @@ jobs:
             - node_modules
           key:
             - app-{{ checksum"package.json }}
+  deploy-to-s3:
+    docker:
+      - image: circleci/node:15.2.1
+    working_directory: ~/repo
+    steps:
+      - checkout
+      - run:
+          name: Confirm current branch
+          command: echo ${CURRENT_BRANCH}
+      - run:
+          name: Installing AWS CLI and relation library
+          working_directory: /
+          command: |
+            sudo apt-get -y -qq update
+            sudo apt-get install -y awscli
+            sudo apt-get install -y python-pip python-dev build-essential
+      - run:
+          name: Build Project
+          command: |
+            npm install -g yarn
+            yarn install
+            yarn build
+            cd build
+            zip ../build.zip -r * .[^.]*
+            echo "build success
+      - run:
+          name: Deploy to S3
+          command: |
+            aws configure set preview.cloudfront
+            if [ "${CURRENT_BRANCH}" == "master" ]
+            then
+              aws cloudfront create-invalidation distribution-id ${PRODUCT_DISTRIBUTION_ID} --paths /\*
+            fi
